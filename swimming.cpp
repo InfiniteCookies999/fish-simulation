@@ -1,16 +1,15 @@
 #include "simulation.h"
 
 #include <algorithm>
-#include <iostream>
 #include <raymath.h>
+
+static Vector2 get_wrapped_point(const SwimPath& path, int index);
 
 static Vector2 lerp_cubic_bezier(Vector2 p0, Vector2 p1, Vector2 p2, Vector2 p3, float t);
 
 void generate_swim_path(Simulation& sim, SwimPath& swim_path, int start_index) {
 
     swim_path.points.clear();
-
-    // TODO (maddie): the radius differences cause points to not be and create sharp edges along the path.
 
     // traversing along the arc path by randomized steps so that the points never get
     // too close to each other.
@@ -40,8 +39,8 @@ void generate_swim_path(Simulation& sim, SwimPath& swim_path, int start_index) {
         swim_path.points.push_back(Vector2{ x, y });
     }
 
+    swim_path.cur_point = swim_path.points[start_index];
     swim_path.start_index = start_index;
-    swim_path.end_index = start_index + 1;
     swim_path.t = 0;
 }
 
@@ -49,23 +48,20 @@ void update_swim_point(SwimPath& swim_path, float dt) {
 
     // Account for the path length when traversing so that swimming moves at a steady
     // state.
-    Vector2 path_start_point = swim_path.points[swim_path.start_index];
-    Vector2 path_end_point = swim_path.points[swim_path.end_index];
+    Vector2 path_start_point = get_wrapped_point(swim_path, swim_path.start_index);
+    Vector2 path_end_point = get_wrapped_point(swim_path, swim_path.start_index + 1);
     float path_length = Vector2Distance(path_start_point, path_end_point);
 
     swim_path.t += dt * (100.f/path_length);
     if (swim_path.t > 1) {
-        // TODO (maddie): we want to move to the next pair of points.
         ++swim_path.start_index;
-        ++swim_path.end_index;
         swim_path.start_index %= swim_path.points.size();
-        swim_path.end_index %= swim_path.points.size();
     }
     while (swim_path.t > 1) {
         swim_path.t -= 1;
     }
-    path_start_point = swim_path.points[swim_path.start_index];
-    path_end_point = swim_path.points[swim_path.end_index];
+    path_start_point = get_wrapped_point(swim_path, swim_path.start_index);
+    path_end_point = get_wrapped_point(swim_path, swim_path.start_index + 1);
 
     Vector2 p0 = path_start_point;
     Vector2 p1 = { 0 };
@@ -78,17 +74,14 @@ void update_swim_point(SwimPath& swim_path, float dt) {
     p1.y = path_start_point.y;
     p2.y = path_end_point.y;
 
-    // DrawCircleV(p0, 4.f, ORANGE);
-    // DrawCircleV(p1, 4.f, PURPLE);
-    // DrawCircleV(p2, 4.f, PURPLE);
-    // DrawCircleV(p3, 4.f, ORANGE);
-
     swim_path.cur_point = lerp_cubic_bezier(p0, p1, p2, p3, swim_path.t);
 }
 
 
 void update_fishes(Simulation& sim, float dt) {
+    // Useful information on boids algorithm:
     // https://vanhunteradams.com/Pico/Animal_Movement/Boids-algorithm.html
+
     const float avoid_factor = 0.2f;//0.1f; //0.06f;
     const float alignment_factor = 0.02f;//0.015f;
     const float avg_vel_factor = 0.01f;
@@ -163,8 +156,6 @@ void update_fishes(Simulation& sim, float dt) {
             dy -= turn_factor;
         }
 
-        // std::cout << "dx: " << dx << "\n";
-
         fish.velocity.x += dx * dt;
         fish.velocity.y += dy * dt;
 
@@ -182,7 +173,6 @@ void update_fishes(Simulation& sim, float dt) {
             fish.velocity.x = norm.x * fish.max_speed;
             fish.velocity.y = norm.y * fish.max_speed;
         }
-        // std::cout << "vel: " << fish.velocity.x << ", " << fish.velocity.y << "\n";
     }
 
     for (Fish& fish : sim.fishes) {
@@ -213,12 +203,11 @@ void update_fishes(Simulation& sim, float dt) {
         } else {
             fish.angle = new_angle;
         }
-
-        if (fish.angle > 31515) {
-            std::cout << "assigned angle: " << fish.angle << "\n";
-            std::cout << "dx,dy: " << dx << "," << dy << "\n";
-        }
     }
+}
+
+static Vector2 get_wrapped_point(const SwimPath& path, int index) {
+    return path.points[index % path.points.size()];
 }
 
 // -------------------------

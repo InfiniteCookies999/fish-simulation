@@ -1,7 +1,6 @@
 
 #include "simulation.h"
 
-#include <iostream>
 #include <random>
 #include <raylib.h>
 
@@ -18,7 +17,6 @@ static void render(const Simulation& sim);
 static void render_path(const SwimPath& swim_path);
 
 static float degrees(float radians);
-// https://www.youtube.com/watch?v=pnYccz1Ha34
 
 int main() {
 
@@ -80,8 +78,8 @@ static void create_fishes(Simulation& sim, const SwimPath& swim_path, int num_fi
     std::uniform_real_distribution<float> scale_dist(0.25f, 0.8f);
     std::uniform_real_distribution<float> max_speed_dist(1.5f, 3.f);
     for (int i = 0; i < num_fish; i++) {
-        float x = WIDTH/2.f + pos_dist(sim.gen);
-        float y = HEIGHT/2.f + pos_dist(sim.gen);
+        float x = swim_path.cur_point.x + pos_dist(sim.gen);
+        float y = swim_path.cur_point.y + pos_dist(sim.gen);
         float scale = scale_dist(sim.gen);
         Fish fish = Fish(swim_path);
         fish.position = Vector2{ x, y };
