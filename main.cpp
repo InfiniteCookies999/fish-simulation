@@ -1,22 +1,21 @@
 
 #include "simulation.h"
 
+#include <chrono>
 #include <random>
-#include <raylib.h>
+#include <format>
 
-typedef std::mt19937 rng_t;
+#include <raylib.h>
 
 static const int WIDTH = 800;
 static const int HEIGHT = 600;
 
-static void create_fishes(Simulation& sim, const SwimPath& swim_path, int num_fish);
+static void create_fishes(Simulation& sim, int swim_path_index, int num_fish);
 
 static void update(Simulation& sim);
 
 static void render(const Simulation& sim);
 static void render_path(const SwimPath& swim_path);
-
-static float degrees(float radians);
 
 int main() {
 
@@ -46,10 +45,10 @@ int main() {
     }
 
     for (int i = 0; i < NUM_PATHS; i++) {
-        SwimPath& swim_path = sim.swim_paths[i];
-        create_fishes(sim, swim_path, num_fishes[i]);
+        create_fishes(sim, i, num_fishes[i]);
     }
 
+    sim.last_path_change_time = current_time_milliseconds();
     while (!WindowShouldClose()) {
         BeginDrawing();
 
@@ -60,9 +59,17 @@ int main() {
             }
         }
 
-        // TODO (maddie): we should measure performance
+
+        // auto st = current_time_nanoseconds();
+
         update(sim);
         render(sim);
+
+        // frames taking about 0.35ms
+        // a frame is meant to finish in under 16.6ms so seems perfectly fine.
+
+        // auto took = current_time_nanoseconds() - st;
+        // std::cout << "frame took: " << (took*1e-6) << " ms\n";
 
         EndDrawing();
     }
@@ -73,19 +80,20 @@ int main() {
     return 0;
 }
 
-static void create_fishes(Simulation& sim, const SwimPath& swim_path, int num_fish) {
+static void create_fishes(Simulation& sim, int swim_path_index, int num_fish) {
     std::uniform_real_distribution<float> pos_dist(-20.f, +20.f);
     std::uniform_real_distribution<float> scale_dist(0.25f, 0.8f);
     std::uniform_real_distribution<float> max_speed_dist(1.5f, 3.f);
     for (int i = 0; i < num_fish; i++) {
+        const SwimPath& swim_path = sim.swim_paths[swim_path_index];
         float x = swim_path.cur_point.x + pos_dist(sim.gen);
         float y = swim_path.cur_point.y + pos_dist(sim.gen);
         float scale = scale_dist(sim.gen);
-        Fish fish = Fish(swim_path);
+        Fish fish{};
+        fish.swim_path_index = swim_path_index;
         fish.position = Vector2{ x, y };
         fish.scale = scale;
         fish.max_speed = max_speed_dist(sim.gen);
-        fish.special = i == 0;
         sim.fishes.push_back(fish);
     }
 }
@@ -106,15 +114,8 @@ static void render(const Simulation& sim) {
 
     ClearBackground(Color{ 47, 130, 204 });
 
-    // for (const SwimPath& path : sim.swim_paths) {
-    //     render_path(path);
-    // }
-
     const Color fish_color = Color{ 255, 255, 255, 190 };
     for (const Fish& fish : sim.fishes) {
-        // if (fish.special) {
-        //     DrawCircleV(fish.position, 30.f, Color{ 200, 200, 200, 30 });
-        // }
 
         // the part of the texture to use for drawing.
         Rectangle source_rect = { 0, 0, 32, 32 };
@@ -126,6 +127,9 @@ static void render(const Simulation& sim) {
         // std::cout << "angle: " << fish.angle << "\n";
         DrawTexturePro(sim.fish_texture, source_rect, dest_rect, origin, degrees(fish.angle) + 270, fish_color);
     }
+
+    // std::string text = std::format("FPS: {}", GetFPS());
+    // DrawText(text.c_str(), 0, 0, 24, RAYWHITE);
 }
 
 static void render_path(const SwimPath& swim_path) {
@@ -144,6 +148,12 @@ static void render_path(const SwimPath& swim_path) {
     DrawCircleV(swim_path.cur_point, 8.f, Color{ 248, 3, 252, 255 });
 }
 
-static float degrees(float radians) {
-    return radians * (180.f / PI);
+long long current_time_nanoseconds() {
+    using namespace std::chrono;
+    auto timepoint = steady_clock::now();
+    return duration_cast<nanoseconds>(timepoint.time_since_epoch()).count();
+}
+
+long long current_time_milliseconds() {
+    return (long long) (current_time_nanoseconds() * 1e-6);
 }

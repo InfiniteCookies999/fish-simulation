@@ -5,7 +5,7 @@ project("fish_simulation")
 
 find_package(raylib 3.0 REQUIRED)
 
-add_executable(fish_simulation "main.cpp" "swimming.cpp")
+add_executable(fish_simulation "main.cpp" "swimming.cpp" "more_maths.cpp")
 
 target_link_libraries(fish_simulation raylib)
 

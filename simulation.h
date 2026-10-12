@@ -12,16 +12,12 @@ struct SwimPath {
 };
 
 struct Fish {
-    const SwimPath& swim_path;
+    int swim_path_index = 0;
     Vector2 position = { 0 };
     Vector2 velocity = { 0 };
     float angle = 0;
     float scale = 1;
     float max_speed = 1;
-    bool special = false;
-
-    Fish(const SwimPath& _swim_path)
-        : swim_path(_swim_path) {}
 };
 
 struct Simulation {
@@ -35,6 +31,9 @@ struct Simulation {
     // state
     std::vector<SwimPath> swim_paths;
     std::vector<Fish> fishes;
+
+    // time in milliseconds
+    long long last_path_change_time;
 
     // rendering
     Texture2D fish_texture;
@@ -62,3 +61,14 @@ void update_swim_point(SwimPath& swim_path, float dt);
  * defined by the assigned `swim_path` of each fish and boids algorithm.
  */
 void update_fishes(Simulation& sim, float dt);
+
+long long current_time_nanoseconds();
+long long current_time_milliseconds();
+
+
+// ------------------------
+// math
+
+float degrees(float radians);
+
+Vector2 lerp_cubic_bezier(Vector2 p0, Vector2 p1, Vector2 p2, Vector2 p3, float t);

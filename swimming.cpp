@@ -1,11 +1,19 @@
 #include "simulation.h"
 
 #include <algorithm>
+#include <random>
 #include <raymath.h>
 
 static Vector2 get_wrapped_point(const SwimPath& path, int index);
 
-static Vector2 lerp_cubic_bezier(Vector2 p0, Vector2 p1, Vector2 p2, Vector2 p3, float t);
+/*
+ * Occassionally randomly has the fish decide to change to follow the next
+ * path point.
+ */
+static void fish_change_paths(Simulation& sim);
+
+static void fish_update_velocity(Simulation& sim, float dt);
+static void fish_update_position_and_angle(Simulation& sim);
 
 void generate_swim_path(Simulation& sim, SwimPath& swim_path, int start_index) {
 
@@ -22,13 +30,16 @@ void generate_swim_path(Simulation& sim, SwimPath& swim_path, int start_index) {
     float w = static_cast<float>(sim.res_width);
     float h = static_cast<float>(sim.res_height);
 
+    // produce a circle it looks better.
+    float rr = std::min(w, h);
+
     // TODO (maddie): feels as if the last point cuts off a bit early.
     float angle = step_dist(sim.gen);
     while (angle < (2 * PI - STEP/2.f)) {
         angle += step_dist(sim.gen);
 
-        float rx = ((w - 200 + radius_dist(sim.gen)) / 2);
-        float ry = ((h - 200 + radius_dist(sim.gen)) / 2);
+        float rx = ((rr - 200 + radius_dist(sim.gen)) / 2);
+        float ry = ((rr - 200 + radius_dist(sim.gen)) / 2);
 
         float ax = sinf(angle) * rx;
         float ay = cosf(angle) * ry;
@@ -39,6 +50,7 @@ void generate_swim_path(Simulation& sim, SwimPath& swim_path, int start_index) {
         swim_path.points.push_back(Vector2{ x, y });
     }
 
+    start_index %= swim_path.points.size();
     swim_path.cur_point = swim_path.points[start_index];
     swim_path.start_index = start_index;
     swim_path.t = 0;
@@ -79,6 +91,32 @@ void update_swim_point(SwimPath& swim_path, float dt) {
 
 
 void update_fishes(Simulation& sim, float dt) {
+
+    fish_change_paths(sim);
+
+    fish_update_velocity(sim, dt);
+
+    fish_update_position_and_angle(sim);
+
+}
+
+static void fish_change_paths(Simulation& sim) {
+    std::uniform_real_distribution<float> path_change_dist(0, 1);
+
+    long long now = current_time_milliseconds();
+    if (now - sim.last_path_change_time > 250) {
+        sim.last_path_change_time = now;
+        for (Fish& fish : sim.fishes) {
+            float p = path_change_dist(sim.gen);
+            if (!(p < 0.005f)) {
+                continue;
+            }
+            fish.swim_path_index = (fish.swim_path_index + 1) % sim.swim_paths.size();
+        }
+    }
+}
+
+static void fish_update_velocity(Simulation& sim, float dt) {
     // Useful information on boids algorithm:
     // https://vanhunteradams.com/Pico/Animal_Movement/Boids-algorithm.html
 
@@ -88,12 +126,14 @@ void update_fishes(Simulation& sim, float dt) {
     const float centering_factor = 0.005f;
     const float turn_factor = 1.5f;
     for (Fish& fish : sim.fishes) {
-        float dx = (fish.swim_path.cur_point.x - fish.position.x) * alignment_factor;
-        float dy = (fish.swim_path.cur_point.y - fish.position.y) * alignment_factor;
+        const SwimPath& swim_path = sim.swim_paths[fish.swim_path_index];
 
-        float close_dx = 0;
-        float close_dy = 0;
-        int count = 0;
+        float dx = (swim_path.cur_point.x - fish.position.x) * alignment_factor;
+        float dy = (swim_path.cur_point.y - fish.position.y) * alignment_factor;
+
+        // accumulated velocity away from other fishes so the fishes remain spaced out.
+        float avoid_dx = 0;
+        float avoid_dy = 0;
 
         float avg_vel_x = 0;
         float avg_vel_y = 0;
@@ -103,39 +143,45 @@ void update_fishes(Simulation& sim, float dt) {
         int avg_pos_count = 0;
         for (const Fish& o_fish : sim.fishes) {
             if (&fish == &o_fish) continue;
-            float d = Vector2Distance(fish.position, o_fish.position);
-            if (d < 20.f) {
+            float dist = Vector2Distance(fish.position, o_fish.position);
+            if (dist < 20.f) {
                 float diff_x = fish.position.x - o_fish.position.x;
                 float diff_y = fish.position.y - o_fish.position.y;
-                if (d < 4.f) {
-                    close_dx += diff_x*16.f;
-                    close_dy += diff_y*16.f;
+                if (dist < 4.f) {
+                    avoid_dx += diff_x*16.f;
+                    avoid_dy += diff_y*16.f;
                 } else {
-                    close_dx += diff_x;
-                    close_dy += diff_y;
+                    avoid_dx += diff_x;
+                    avoid_dy += diff_y;
                 }
             }
-            if (d < 50.f) {
+            if (dist < 50.f) {
                 avg_vel_x += fish.velocity.x;
                 avg_vel_y += fish.velocity.y;
                 ++avg_vel_count;
             }
-            //if (d < 15.f) {
-            if (d < 5.f) {
+            if (dist < 5.f) {
                 avg_pos_x += fish.velocity.x;
                 avg_pos_y += fish.velocity.y;
                 ++avg_pos_count;
             }
         }
-        dx += close_dx*avoid_factor;
-        dy += close_dy*avoid_factor;
+        // apply velocity to ensure the fishes do not get too close
+        // to each other.
+        dx += avoid_dx*avoid_factor;
+        dy += avoid_dy*avoid_factor;
 
+        // apply velocity so that fishes maintain a similar velocity to the
+        // other fishes around them.
         if (avg_vel_count != 0) {
             avg_vel_x /= avg_vel_count;
             avg_vel_y /= avg_vel_count;
             dx += (avg_vel_x - fish.velocity.x) * avg_vel_factor;
             dy += (avg_vel_y - fish.velocity.y) * avg_vel_factor;
         }
+
+        // apply velocity so that fishes gravitate towards the center of
+        // of fishes near them.
         if (avg_pos_count != 0) {
             avg_pos_x /= avg_pos_count;
             avg_pos_y /= avg_pos_count;
@@ -143,38 +189,53 @@ void update_fishes(Simulation& sim, float dt) {
             dy += (avg_pos_y - fish.position.y) * centering_factor;
         }
 
+        // if too close to the border of the window apply a turn factor to
+        // avoid it.
+        bool turning = false;
         if (fish.position.x < 100) {
             dx += turn_factor;
+            turning = true;
         }
         if (fish.position.x > sim.res_width - 100) {
             dx -= turn_factor;
+            turning = true;
         }
         if (fish.position.y < 100) {
             dy += turn_factor;
+            turning = true;
         }
         if (fish.position.y > sim.res_height - 100) {
             dy -= turn_factor;
+            turning = true;
+        }
+
+        if (turning) {
+            dx *= 1.3f;
+            dy *= 1.3f;
         }
 
         fish.velocity.x += dx * dt;
         fish.velocity.y += dy * dt;
 
         // limit the speed of the velocity.
+        const float MIN_SPEED = 0.05f;//0.2f;
         float speed = Vector2Length(fish.velocity);
         if (speed < 1e-4) {
-            fish.velocity.x = 0.2f;
-            fish.velocity.y = 0.2f;
-        } else if (speed < 0.2f) {
+            fish.velocity.x = MIN_SPEED;
+            fish.velocity.y = MIN_SPEED;
+        } else if (speed < MIN_SPEED) {
             Vector2 norm = Vector2Normalize(fish.velocity);
-            fish.velocity.x = norm.x * 0.2f;
-            fish.velocity.y = norm.y * 0.2f;
+            fish.velocity.x = norm.x * MIN_SPEED;
+            fish.velocity.y = norm.y * MIN_SPEED;
         } else if (speed > fish.max_speed) {
             Vector2 norm = Vector2Normalize(fish.velocity);
             fish.velocity.x = norm.x * fish.max_speed;
             fish.velocity.y = norm.y * fish.max_speed;
         }
     }
+}
 
+static void fish_update_position_and_angle(Simulation& sim) {
     for (Fish& fish : sim.fishes) {
         float dx = fish.velocity.x;
         float dy = fish.velocity.y;
@@ -208,16 +269,4 @@ void update_fishes(Simulation& sim, float dt) {
 
 static Vector2 get_wrapped_point(const SwimPath& path, int index) {
     return path.points[index % path.points.size()];
-}
-
-// -------------------------
-// math
-
-static Vector2 lerp_cubic_bezier(Vector2 p0, Vector2 p1, Vector2 p2, Vector2 p3, float t) {
-    Vector2 l0 = Vector2Lerp(p0, p1, t);
-    Vector2 l1 = Vector2Lerp(p1, p2, t);
-    Vector2 l2 = Vector2Lerp(p2, p3, t);
-    Vector2 q0 = Vector2Lerp(l0, l1, t);
-    Vector2 q1 = Vector2Lerp(l1, l2, t);
-    return Vector2Lerp(q0, q1, t);
 }
