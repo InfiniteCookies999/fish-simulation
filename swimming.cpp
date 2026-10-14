@@ -140,7 +140,7 @@ static void fish_find_food_to_chase_and_eat(Simulation& sim) {
             for (auto& [food_id, food] : sim.fish_foods) {
                 if (food.eaten) continue;
                 if (food.total_fish_chasing > 3) continue;
-                float dist = Vector2Distance(fish.position, food.position);
+                float dist = Vector2Distance(fish.head_position, food.position);
                 if (dist < 100.f) {
                     fish.chasing_food_id = food_id;
                     ++food.total_fish_chasing;
@@ -157,7 +157,7 @@ static void fish_find_food_to_chase_and_eat(Simulation& sim) {
                     continue;
                 }
 
-                float dist = Vector2Distance(fish.position, food.position);
+                float dist = Vector2Distance(fish.head_position, food.position);
                 if (dist < 5.f) {
                     fish.chasing_food_id = -1;
                     food.eaten = true;
@@ -192,8 +192,8 @@ static void fish_update_velocity(Simulation& sim, float dt) {
                 // Set the velocity to be fixed since treating moving towards the food as
                 // a force means the fish may continuously overshoot the food.
                 const FishFood& food = it->second;
-                fish.velocity.x = (food.position.x - fish.position.x) * 5.f * dt;
-                fish.velocity.y = (food.position.y - fish.position.y) * 5.f * dt;
+                fish.velocity.x = (food.position.x - fish.head_position.x) * 5.f * dt;
+                fish.velocity.y = (food.position.y - fish.head_position.y) * 5.f * dt;
             }
         }
 
@@ -356,6 +356,10 @@ static void fish_update_position_and_angle(Simulation& sim) {
         } else {
             fish.angle = new_angle;
         }
+
+        fish.head_position = fish.position;
+        fish.head_position.x += cos(fish.angle) * (18/2.f) * fish.scale;
+        fish.head_position.y += sin(fish.angle) * (18/2.f) * fish.scale;
     }
 }
 

@@ -15,6 +15,7 @@ struct SwimPath {
 struct Fish {
     int swim_path_index = 0;
     Vector2 position = { 0 };
+    Vector2 head_position = { 0 };
     Vector2 velocity = { 0 };
     float angle = 0;
     float scale = 1;

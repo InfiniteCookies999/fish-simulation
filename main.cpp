@@ -113,8 +113,8 @@ static void create_fishes(Simulation& sim, int swim_path_index, int num_fish) {
     std::uniform_real_distribution<float> max_speed_dist(1.5f, 3.f);
     for (int i = 0; i < num_fish; i++) {
         const SwimPath& swim_path = sim.swim_paths[swim_path_index];
-        float x = sim.res_width/2.f + pos_dist(sim.gen); //swim_path.cur_point.x + pos_dist(sim.gen);
-        float y = sim.res_height/2.f + pos_dist(sim.gen); //swim_path.cur_point.y + pos_dist(sim.gen);
+        float x = sim.res_width/2.f + pos_dist(sim.gen);
+        float y = sim.res_height/2.f + pos_dist(sim.gen);
         float scale = scale_dist(sim.gen);
         Fish fish{};
         fish.swim_path_index = swim_path_index;
@@ -209,8 +209,9 @@ static void render(const Simulation& sim) {
         Rectangle dest_rect = { fish.position.x, fish.position.y, 32*fish.scale, 32*fish.scale };
         // we want to specify the origin to be the center of the texture so it rotates around the center.
         Vector2 origin = { 16*fish.scale, 16*fish.scale };
-        // std::cout << "angle: " << fish.angle << "\n";
         DrawTexturePro(sim.fish_texture, source_rect, dest_rect, origin, degrees(fish.angle) + 270, fish_color);
+
+        // DrawCircleV(fish.head_position, 2.f, RED);
     }
 
     long long time_now = current_time_milliseconds();
