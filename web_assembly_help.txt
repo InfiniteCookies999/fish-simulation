@@ -1,0 +1,16 @@
+Steps I took to get it installed and running:
+1. Install emsdk: https://terminalroot.com/how-to-transform-your-games-into-c-cpp-for-the-web-with-emscripten-sdl2/
+   ** Note I had to manually run:  `source "$HOME/.emsdk/emsdk_env.sh"` because it was otherwise not working
+      following the steps.
+2. At this point if `em++ --version` runs correctly then you can move on to building/compiling.
+3. Building with em: `emcmake cmake -S . -B build-web`
+4. Compiling: `cmake --build build-web `
+5. At this point you should have a .build-web/fish_simulation.html file.
+6. To properly run the server and see the game:
+   `cd build-web`
+   `python3 -m http.server 8000`
+   Then in your browser open: http://127.0.0.1:8000/fish_simulation.html
+
+TODO (maddie): so now we want to take these steps and move them into a docker container to be started.
+We also want to sort out how to make whatever the running server is direct to the page automatically.
+It would also be nice to remove the stuff saying it was built/powered by emscripten.

@@ -1,0 +1,9 @@
+services:
+  fish-simulation:
+    image: nginx:alpine
+    volumes:
+      - ./build-web:/usr/share/nginx/html:ro
+    ports:
+      - "8080:80"
+    container_name: fish-simulation
+    restart: unless-stopped

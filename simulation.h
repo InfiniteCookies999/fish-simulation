@@ -48,6 +48,9 @@ struct Simulation {
     // state
     int start_time;
 
+    // How long render/update took in milliseconds.
+    float frame_time;
+
     bool resetting = false;
     bool feeding_fish = false;
     bool tapping_tank = false;

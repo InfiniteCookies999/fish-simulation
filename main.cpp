@@ -71,8 +71,12 @@ int main() {
             }
         }
 
+        long long start_time = current_time_nanoseconds();
         update(sim);
         render(sim);
+        long long frame_duration = current_time_nanoseconds() - start_time;
+        sim.frame_time = frame_duration * 1e-6;
+
         render_and_update_gui(sim);
 
         EndDrawing();
@@ -267,6 +271,15 @@ static void render_and_update_gui(Simulation& sim) {
     if (ImGui::Checkbox("Tap tank", &sim.tapping_tank)) {
         sim.feeding_fish = false;
     }
+
+    // Frame time rendering for debugging:
+    // float bottom_padding = 10.0f;
+    // float text_height = ImGui::GetTextLineHeight();
+
+    // ImGui::SetCursorPosY(ImGui::GetWindowHeight() - text_height - bottom_padding);
+
+    // std::string frame_time_str = std::format("Frame {:.2f} ms", sim.frame_time);
+    // ImGui::Text("%s", frame_time_str.c_str());
 
     ImGui::End();
 
