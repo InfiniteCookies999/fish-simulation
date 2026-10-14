@@ -3,12 +3,20 @@
 
 #include <chrono>
 #include <random>
-#include <format>
 
 #include <raylib.h>
+#include <rlImGui.h>
+#include <imgui.h>
 
-static const int WIDTH = 800;
+static const int RES_WIDTH = 200;
+static const int WIDTH = 800 + 150;
 static const int HEIGHT = 600;
+
+static const int NUM_PATHS = 4;
+const int PATH_START_INDEXES[NUM_PATHS] = { 0, 6, 12, 14 };
+const int NUM_FISHES[NUM_PATHS] = { 64, 40, 64, 32 };
+
+static void load_textures(Simulation& sim);
 
 static void create_fishes(Simulation& sim, int swim_path_index, int num_fish);
 
@@ -16,6 +24,8 @@ static void update(Simulation& sim);
 
 static void render(const Simulation& sim);
 static void render_path(const SwimPath& swim_path);
+
+static void render_and_update_gui(Simulation& sim);
 
 int main() {
 
@@ -25,15 +35,16 @@ int main() {
     //                sense to vsync... what even is vsync in a browser.
     SetTargetFPS(60);
 
-    Simulation sim(WIDTH, HEIGHT);
+    rlImGuiSetup(true);
 
-    Image fish_image = LoadImage("fish.png");
-    sim.fish_texture = LoadTextureFromImage(fish_image);
-    UnloadImage(fish_image);
+    // Prevent ImGui from making an .ini file.
+    auto& imGuiIO{ ImGui::GetIO() };
+    imGuiIO.IniFilename = nullptr;
 
-    const int NUM_PATHS = 4;
-    const int path_start_indexes[NUM_PATHS] = { 0, 6, 12, 14 };
-    const int num_fishes[NUM_PATHS] = { 64, 40, 64, 32 };
+
+    Simulation sim(RES_WIDTH, WIDTH, HEIGHT);
+
+    load_textures(sim);
 
     for (int i = 0; i < NUM_PATHS; i++) {
         sim.swim_paths.push_back(SwimPath{});
@@ -41,53 +52,69 @@ int main() {
 
     for (int i = 0; i < NUM_PATHS; i++) {
         SwimPath& swim_path = sim.swim_paths[i];
-        generate_swim_path(sim, swim_path, path_start_indexes[i]);
+        generate_swim_path(sim, swim_path, PATH_START_INDEXES[i]);
     }
 
     for (int i = 0; i < NUM_PATHS; i++) {
-        create_fishes(sim, i, num_fishes[i]);
+        create_fishes(sim, i, NUM_FISHES[i]);
     }
 
     sim.last_path_change_time = current_time_milliseconds();
+    sim.start_time = current_time_milliseconds();
     while (!WindowShouldClose()) {
         BeginDrawing();
 
         if (IsKeyPressed(KEY_F1)) {
             for (int i = 0; i < NUM_PATHS; i++) {
                 SwimPath& swim_path = sim.swim_paths[i];
-                generate_swim_path(sim, swim_path, path_start_indexes[i]);
+                generate_swim_path(sim, swim_path, PATH_START_INDEXES[i]);
             }
         }
 
-
-        // auto st = current_time_nanoseconds();
-
         update(sim);
         render(sim);
-
-        // frames taking about 0.35ms
-        // a frame is meant to finish in under 16.6ms so seems perfectly fine.
-
-        // auto took = current_time_nanoseconds() - st;
-        // std::cout << "frame took: " << (took*1e-6) << " ms\n";
+        render_and_update_gui(sim);
 
         EndDrawing();
     }
 
     UnloadTexture(sim.fish_texture);
+    UnloadTexture(sim.fish_food_texture);
+    UnloadTexture(sim.fish_food_muched1_texture);
+    UnloadTexture(sim.fish_food_muched2_texture);
+    UnloadTexture(sim.fish_food_box_texture);
+    rlImGuiShutdown();
     CloseWindow();
 
     return 0;
 }
 
+static void load_textures(Simulation& sim) {
+    Image fish_image = LoadImage("fish.png");
+    Image fish_food_image = LoadImage("fish_food.png");
+    Image fish_food_muched1_image = LoadImage("fish_food_muched1.png");
+    Image fish_food_muched2_image = LoadImage("fish_food_muched2.png");
+    Image fish_food_box_image = LoadImage("fish_food_box.png");
+    sim.fish_texture = LoadTextureFromImage(fish_image);
+    sim.fish_food_texture = LoadTextureFromImage(fish_food_image);
+    sim.fish_food_muched1_texture = LoadTextureFromImage(fish_food_muched1_image);
+    sim.fish_food_muched2_texture = LoadTextureFromImage(fish_food_muched2_image);
+    sim.fish_food_box_texture = LoadTextureFromImage(fish_food_box_image);
+    UnloadImage(fish_image);
+    UnloadImage(fish_food_image);
+    UnloadImage(fish_food_muched1_image);
+    UnloadImage(fish_food_muched2_image);
+    UnloadImage(fish_food_box_image);
+}
+
 static void create_fishes(Simulation& sim, int swim_path_index, int num_fish) {
-    std::uniform_real_distribution<float> pos_dist(-20.f, +20.f);
+    std::uniform_real_distribution<float> pos_dist(-150.f, +150.f);
     std::uniform_real_distribution<float> scale_dist(0.25f, 0.8f);
     std::uniform_real_distribution<float> max_speed_dist(1.5f, 3.f);
     for (int i = 0; i < num_fish; i++) {
         const SwimPath& swim_path = sim.swim_paths[swim_path_index];
-        float x = swim_path.cur_point.x + pos_dist(sim.gen);
-        float y = swim_path.cur_point.y + pos_dist(sim.gen);
+        float x = sim.res_width/2.f + pos_dist(sim.gen); //swim_path.cur_point.x + pos_dist(sim.gen);
+        float y = sim.res_height/2.f + pos_dist(sim.gen); //swim_path.cur_point.y + pos_dist(sim.gen);
         float scale = scale_dist(sim.gen);
         Fish fish{};
         fish.swim_path_index = swim_path_index;
@@ -100,19 +127,77 @@ static void create_fishes(Simulation& sim, int swim_path_index, int num_fish) {
 
 static void update(Simulation& sim) {
 
+    if (sim.resetting) {
+        for (int i = 0; i < NUM_PATHS; i++) {
+            SwimPath& swim_path = sim.swim_paths[i];
+            generate_swim_path(sim, swim_path, PATH_START_INDEXES[i]);
+        }
+        sim.fishes.clear();
+        for (int i = 0; i < NUM_PATHS; i++) {
+            create_fishes(sim, i, NUM_FISHES[i]);
+        }
+        sim.fish_foods.clear();
+        sim.fish_food_id_counter = 0;
+        sim.last_path_change_time = current_time_milliseconds();
+        sim.start_time = current_time_milliseconds();
+        sim.resetting = false;
+    }
+
     float dt = GetFrameTime();
 
     for (SwimPath& path : sim.swim_paths) {
         update_swim_point(path, dt);
     }
 
-    update_fishes(sim, dt);
+    update_fish_world(sim, dt);
 
+
+    const int BOUNDS_PAD = 20;
+    Vector2 mouse_pos = GetMousePosition();
+    sim.action_in_bounds = true;
+    if (mouse_pos.x < sim.gui_width + BOUNDS_PAD) {
+        sim.action_in_bounds = false;
+    }
+    if (mouse_pos.x > sim.res_width - BOUNDS_PAD) {
+        sim.action_in_bounds = false;
+    }
+    if (mouse_pos.y < BOUNDS_PAD) {
+        sim.action_in_bounds = false;
+    }
+    if (mouse_pos.y > sim.res_height - 20) {
+        sim.action_in_bounds = false;
+    }
+
+    if (sim.feeding_fish) {
+        if (sim.action_in_bounds && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+            std::uniform_real_distribution<float> pos_dist(-5.f, +5.f);
+            FishFood fish_food{
+                .position = {
+                    mouse_pos.x + pos_dist(sim.gen),
+                    mouse_pos.y + pos_dist(sim.gen)
+                }
+            };
+            sim.fish_foods.insert({ sim.fish_food_id_counter, fish_food });
+            ++sim.fish_food_id_counter;
+        }
+    }
+    if (sim.tapping_tank) {
+        if (sim.action_in_bounds && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+            sim.tank_taps.push_back(TankTap{
+                .position = mouse_pos,
+                .start_time = current_time_milliseconds()
+            });
+        }
+    }
 }
 
 static void render(const Simulation& sim) {
 
     ClearBackground(Color{ 47, 130, 204 });
+
+    // for (const SwimPath& swim_path : sim.swim_paths) {
+    //     render_path(swim_path);
+    // }
 
     const Color fish_color = Color{ 255, 255, 255, 190 };
     for (const Fish& fish : sim.fishes) {
@@ -128,8 +213,63 @@ static void render(const Simulation& sim) {
         DrawTexturePro(sim.fish_texture, source_rect, dest_rect, origin, degrees(fish.angle) + 270, fish_color);
     }
 
-    // std::string text = std::format("FPS: {}", GetFPS());
-    // DrawText(text.c_str(), 0, 0, 24, RAYWHITE);
+    long long time_now = current_time_milliseconds();
+
+    for (const TankTap& tap : sim.tank_taps) {
+        long long passed = time_now - tap.start_time;
+        float radius = (passed / 15.f);
+        int alpha_t = passed/200;
+        DrawCircleLinesV(tap.position, radius, Color{
+            255, 255, 255,
+            static_cast<unsigned char>(alpha_t == 0 ? 200 : 200/alpha_t)
+        });
+    }
+
+    for (const auto& [_, food] : sim.fish_foods) {
+        Texture texture = sim.fish_food_texture;
+        if (food.eaten) {
+            long long passed = time_now - food.time_eaten_start;
+            if (passed < 150) {
+                texture = sim.fish_food_muched1_texture;
+            } else {
+                texture = sim.fish_food_muched2_texture;
+            }
+        }
+
+        DrawTextureV(texture, food.position, RAYWHITE);
+    }
+
+    if (sim.feeding_fish && sim.action_in_bounds) {
+        Vector2 mouse_pos = GetMousePosition();
+        DrawTexture(sim.fish_food_box_texture, mouse_pos.x - 10, mouse_pos.y - 14, RAYWHITE);
+    }
+}
+
+static void render_and_update_gui(Simulation& sim) {
+    rlImGuiBegin();
+
+    static bool window_open = false;
+    ImGui::Begin("My First Tool", &window_open, ImGuiWindowFlags_NoDecoration);
+    ImGui::SetWindowPos(ImVec2{ 0, 0 });
+    ImGui::SetWindowSize(ImVec2{
+        static_cast<float>(sim.gui_width),
+        static_cast<float>(sim.res_height)
+    });
+    ImGui::SetWindowFontScale(2.f);
+
+    if (ImGui::Button("Reset", ImVec2{ 100, 30 })) {
+        sim.resetting = true;
+    }
+    if (ImGui::Checkbox("Fish Food", &sim.feeding_fish)) {
+        sim.tapping_tank = false;
+    }
+    if (ImGui::Checkbox("Tap tank", &sim.tapping_tank)) {
+        sim.feeding_fish = false;
+    }
+
+    ImGui::End();
+
+    rlImGuiEnd();
 }
 
 static void render_path(const SwimPath& swim_path) {

@@ -5,7 +5,16 @@ project("fish_simulation")
 
 find_package(raylib 3.0 REQUIRED)
 
-add_executable(fish_simulation "main.cpp" "swimming.cpp" "more_maths.cpp")
+add_executable(fish_simulation "main.cpp" "swimming.cpp" "more_maths.cpp"
+    "libs/rlImGui/rlImGui.cpp"
+    "libs/imgui/imgui.cpp"
+    "libs/imgui/imgui_draw.cpp"
+    "libs/imgui/imgui_widgets.cpp"
+    "libs/imgui/imgui_tables.cpp"
+)
+
+target_include_directories (fish_simulation SYSTEM PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/libs/imgui")
+target_include_directories (fish_simulation SYSTEM PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/libs/rlImGui")
 
 target_link_libraries(fish_simulation raylib)
 

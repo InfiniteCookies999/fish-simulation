@@ -12,8 +12,19 @@ static Vector2 get_wrapped_point(const SwimPath& path, int index);
  */
 static void fish_change_paths(Simulation& sim);
 
+/*
+ * For each fish checks if there is food nearby and sets the id of the food
+ * to chase after.
+ *
+ * If close enough sets the food to eaten and stops chasing.
+ */
+static void fish_find_food_to_chase_and_eat(Simulation& sim);
+
 static void fish_update_velocity(Simulation& sim, float dt);
 static void fish_update_position_and_angle(Simulation& sim);
+
+static void remove_eaten_fish_food(Simulation& sim);
+static void remove_tank_taps(Simulation& sim);
 
 void generate_swim_path(Simulation& sim, SwimPath& swim_path, int start_index) {
 
@@ -31,7 +42,7 @@ void generate_swim_path(Simulation& sim, SwimPath& swim_path, int start_index) {
     float h = static_cast<float>(sim.res_height);
 
     // produce a circle it looks better.
-    float rr = std::min(w, h);
+    float rr = std::min(w - sim.gui_width, h);
 
     // TODO (maddie): feels as if the last point cuts off a bit early.
     float angle = step_dist(sim.gen);
@@ -44,7 +55,7 @@ void generate_swim_path(Simulation& sim, SwimPath& swim_path, int start_index) {
         float ax = sinf(angle) * rx;
         float ay = cosf(angle) * ry;
 
-        float x = w / 2 + ax;
+        float x = (w - sim.gui_width) / 2 + ax + sim.gui_width;
         float y = h / 2 + ay;
 
         swim_path.points.push_back(Vector2{ x, y });
@@ -90,13 +101,19 @@ void update_swim_point(SwimPath& swim_path, float dt) {
 }
 
 
-void update_fishes(Simulation& sim, float dt) {
+void update_fish_world(Simulation& sim, float dt) {
 
     fish_change_paths(sim);
+
+    fish_find_food_to_chase_and_eat(sim);
 
     fish_update_velocity(sim, dt);
 
     fish_update_position_and_angle(sim);
+
+    remove_eaten_fish_food(sim);
+
+    remove_tank_taps(sim);
 
 }
 
@@ -116,20 +133,84 @@ static void fish_change_paths(Simulation& sim) {
     }
 }
 
+static void fish_find_food_to_chase_and_eat(Simulation& sim) {
+    for (Fish& fish : sim.fishes) {
+        if (fish.chasing_food_id == -1) {
+            // TODO (maddie): may want to randomize this in some way.
+            for (auto& [food_id, food] : sim.fish_foods) {
+                if (food.eaten) continue;
+                if (food.total_fish_chasing > 3) continue;
+                float dist = Vector2Distance(fish.position, food.position);
+                if (dist < 100.f) {
+                    fish.chasing_food_id = food_id;
+                    ++food.total_fish_chasing;
+                    break;
+                }
+            }
+        }
+
+        if (fish.chasing_food_id != -1) {
+            auto it = sim.fish_foods.find(fish.chasing_food_id);
+            if (it != sim.fish_foods.end()) {
+                FishFood& food = it->second;
+                if (food.eaten) {
+                    continue;
+                }
+
+                float dist = Vector2Distance(fish.position, food.position);
+                if (dist < 5.f) {
+                    fish.chasing_food_id = -1;
+                    food.eaten = true;
+                    food.time_eaten_start = current_time_milliseconds();
+                }
+            } else {
+                fish.chasing_food_id = -1;
+            }
+        }
+    }
+}
+
 static void fish_update_velocity(Simulation& sim, float dt) {
     // Useful information on boids algorithm:
     // https://vanhunteradams.com/Pico/Animal_Movement/Boids-algorithm.html
+
+    long long time_now = current_time_milliseconds();
 
     const float avoid_factor = 0.2f;//0.1f; //0.06f;
     const float alignment_factor = 0.02f;//0.015f;
     const float avg_vel_factor = 0.01f;
     const float centering_factor = 0.005f;
     const float turn_factor = 1.5f;
+
     for (Fish& fish : sim.fishes) {
+
+        float dx = 0, dy = 0;
+
+        if (fish.chasing_food_id != -1) {
+            auto it = sim.fish_foods.find(fish.chasing_food_id);
+            if (it != sim.fish_foods.end()) {
+                // Set the velocity to be fixed since treating moving towards the food as
+                // a force means the fish may continuously overshoot the food.
+                const FishFood& food = it->second;
+                fish.velocity.x = (food.position.x - fish.position.x) * 5.f * dt;
+                fish.velocity.y = (food.position.y - fish.position.y) * 5.f * dt;
+            }
+        }
+
         const SwimPath& swim_path = sim.swim_paths[fish.swim_path_index];
 
-        float dx = (swim_path.cur_point.x - fish.position.x) * alignment_factor;
-        float dy = (swim_path.cur_point.y - fish.position.y) * alignment_factor;
+        if (fish.chasing_food_id == -1) {
+            dx += (swim_path.cur_point.x - fish.position.x) * alignment_factor;
+            dy += (swim_path.cur_point.y - fish.position.y) * alignment_factor;
+        }
+
+        for (const TankTap& tap : sim.tank_taps) {
+            float dist = Vector2Distance(fish.position, tap.position);
+            if (dist < 100.f) {
+                dx += (fish.position.x - tap.position.x) * 0.25f;
+                dy += (fish.position.y - tap.position.y) * 0.25f;
+            }
+        }
 
         // accumulated velocity away from other fishes so the fishes remain spaced out.
         float avoid_dx = 0;
@@ -166,14 +247,17 @@ static void fish_update_velocity(Simulation& sim, float dt) {
                 ++avg_pos_count;
             }
         }
-        // apply velocity to ensure the fishes do not get too close
-        // to each other.
-        dx += avoid_dx*avoid_factor;
-        dy += avoid_dy*avoid_factor;
+
+        if (time_now - sim.start_time > 2500) {
+            // apply velocity to ensure the fishes do not get too close
+            // to each other.
+            dx += avoid_dx*avoid_factor;
+            dy += avoid_dy*avoid_factor;
+        }
 
         // apply velocity so that fishes maintain a similar velocity to the
         // other fishes around them.
-        if (avg_vel_count != 0) {
+        if (avg_vel_count != 0 && fish.chasing_food_id == -1) {
             avg_vel_x /= avg_vel_count;
             avg_vel_y /= avg_vel_count;
             dx += (avg_vel_x - fish.velocity.x) * avg_vel_factor;
@@ -182,7 +266,7 @@ static void fish_update_velocity(Simulation& sim, float dt) {
 
         // apply velocity so that fishes gravitate towards the center of
         // of fishes near them.
-        if (avg_pos_count != 0) {
+        if (avg_pos_count != 0 && fish.chasing_food_id == -1) {
             avg_pos_x /= avg_pos_count;
             avg_pos_y /= avg_pos_count;
             dx += (avg_pos_x - fish.position.x) * centering_factor;
@@ -192,22 +276,25 @@ static void fish_update_velocity(Simulation& sim, float dt) {
         // if too close to the border of the window apply a turn factor to
         // avoid it.
         bool turning = false;
-        if (fish.position.x < 100) {
-            dx += turn_factor;
-            turning = true;
+        if (fish.chasing_food_id == -1) {
+            if (fish.position.x < 100 + sim.gui_width) {
+                dx += turn_factor;
+                turning = true;
+            }
+            if (fish.position.x > sim.res_width - 100) {
+                dx -= turn_factor;
+                turning = true;
+            }
+            if (fish.position.y < 100) {
+                dy += turn_factor;
+                turning = true;
+            }
+            if (fish.position.y > sim.res_height - 100) {
+                dy -= turn_factor;
+                turning = true;
+            }
         }
-        if (fish.position.x > sim.res_width - 100) {
-            dx -= turn_factor;
-            turning = true;
-        }
-        if (fish.position.y < 100) {
-            dy += turn_factor;
-            turning = true;
-        }
-        if (fish.position.y > sim.res_height - 100) {
-            dy -= turn_factor;
-            turning = true;
-        }
+
 
         if (turning) {
             dx *= 1.3f;
@@ -216,17 +303,22 @@ static void fish_update_velocity(Simulation& sim, float dt) {
 
         fish.velocity.x += dx * dt;
         fish.velocity.y += dy * dt;
+    }
 
+    for (Fish& fish : sim.fishes) {
         // limit the speed of the velocity.
-        const float MIN_SPEED = 0.05f;//0.2f;
+        float min_speed = 0.05f;//0.2f;
+        if (fish.chasing_food_id != -1) {
+            min_speed = 0.7f;
+        }
         float speed = Vector2Length(fish.velocity);
         if (speed < 1e-4) {
-            fish.velocity.x = MIN_SPEED;
-            fish.velocity.y = MIN_SPEED;
-        } else if (speed < MIN_SPEED) {
+            fish.velocity.x = min_speed;
+            fish.velocity.y = min_speed;
+        } else if (speed < min_speed) {
             Vector2 norm = Vector2Normalize(fish.velocity);
-            fish.velocity.x = norm.x * MIN_SPEED;
-            fish.velocity.y = norm.y * MIN_SPEED;
+            fish.velocity.x = norm.x * min_speed;
+            fish.velocity.y = norm.y * min_speed;
         } else if (speed > fish.max_speed) {
             Vector2 norm = Vector2Normalize(fish.velocity);
             fish.velocity.x = norm.x * fish.max_speed;
@@ -244,7 +336,7 @@ static void fish_update_position_and_angle(Simulation& sim) {
         fish.position.y += dy;
 
         // clamp the fish position to stay in the bounds of the window.
-        fish.position.x = std::clamp<float>(fish.position.x, 16, sim.res_width - 16);
+        fish.position.x = std::clamp<float>(fish.position.x, sim.gui_width + 16, sim.res_width - 16);
         fish.position.y = std::clamp<float>(fish.position.y, 16, sim.res_height - 16);
 
         // change direction to face velocity but do not change direction too quickly.
@@ -265,6 +357,23 @@ static void fish_update_position_and_angle(Simulation& sim) {
             fish.angle = new_angle;
         }
     }
+}
+
+static void remove_eaten_fish_food(Simulation& sim) {
+    long long now = current_time_milliseconds();
+    std::erase_if(sim.fish_foods, [now](const auto& pair){
+        const auto& [_, food] = pair;
+        long long passed = now - food.time_eaten_start;
+        return food.eaten && passed > 300;
+    });
+}
+
+static void remove_tank_taps(Simulation& sim) {
+    long long now = current_time_milliseconds();
+    std::erase_if(sim.tank_taps, [now](const TankTap& tap) {
+        long long passed = now - tap.start_time;
+        return passed > 1000;
+    });
 }
 
 static Vector2 get_wrapped_point(const SwimPath& path, int index) {
