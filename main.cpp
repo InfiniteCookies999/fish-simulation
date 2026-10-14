@@ -90,11 +90,11 @@ int main() {
 }
 
 static void load_textures(Simulation& sim) {
-    Image fish_image = LoadImage("fish.png");
-    Image fish_food_image = LoadImage("fish_food.png");
-    Image fish_food_muched1_image = LoadImage("fish_food_muched1.png");
-    Image fish_food_muched2_image = LoadImage("fish_food_muched2.png");
-    Image fish_food_box_image = LoadImage("fish_food_box.png");
+    Image fish_image = LoadImage("assets/fish.png");
+    Image fish_food_image = LoadImage("assets/fish_food.png");
+    Image fish_food_muched1_image = LoadImage("assets/fish_food_muched1.png");
+    Image fish_food_muched2_image = LoadImage("assets/fish_food_muched2.png");
+    Image fish_food_box_image = LoadImage("assets/fish_food_box.png");
     sim.fish_texture = LoadTextureFromImage(fish_image);
     sim.fish_food_texture = LoadTextureFromImage(fish_food_image);
     sim.fish_food_muched1_texture = LoadTextureFromImage(fish_food_muched1_image);
